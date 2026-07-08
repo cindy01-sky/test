@@ -22,20 +22,6 @@
             from { opacity: 0; transform: translateY(8px); }
             to { opacity: 1; transform: translateY(0); }
         }
-        /* 美化後台滾動條 */
-        ::-webkit-scrollbar {
-            width: 6px;
-        }
-        ::-webkit-scrollbar-track {
-            background: #FAF9F6;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #D5CDBC;
-            border-radius: 10px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #A69C8E;
-        }
     </style>
 </head>
 <body class="min-h-screen flex flex-col items-center justify-start py-8 px-4 md:px-8 antialiased">
@@ -71,13 +57,10 @@
             <!-- 內容由底部的 JavaScript 動態渲染 -->
         </div>
 
-        <!-- 網頁底端頁尾 (含極度隱藏的 5 次點擊入口) -->
+        <!-- 網頁底端頁尾 (純展示，無任何隱藏後台入口) -->
         <div class="bg-[#FAF9F6] border-t border-[#EBE7DF] py-5 px-6 text-center text-xs text-[#8C8377]">
             <div class="flex items-center justify-center space-x-4">
-                <div 
-                    id="backdoor-trigger"
-                    class="flex items-center space-x-1.5 cursor-default select-none active:opacity-60 transition-opacity"
-                >
+                <div class="flex items-center space-x-1.5 cursor-default select-none">
                     <i data-lucide="shield-check" class="w-4 h-4 text-[#4F7965]"></i>
                     <span class="font-bold text-[#5C554E]">自主保障檢核 ‧ 醫療條款諮詢服務</span>
                 </div>
@@ -87,100 +70,29 @@
 
     </div>
 
-    <!-- 純前端 JavaScript 控制核心 -->
+    <!-- 純前端 JavaScript 控制核心 (完全無後台存取依賴) -->
     <script>
-        // ==========================================
-        // 💡 雲端資料庫設定區
-        // ==========================================
-        const GOOGLE_SHEET_API_URL = ''; 
-
         // 系統變數狀態
         let stage = 'welcome';
         let score = 0;
         let currentQIndex = 0;
-        let backdoorClicks = 0;
-        let filterStatus = 'all';
-        let deleteConfirmId = null;
-        let showSettings = false; // 後台設定面板
 
         // 追蹤當下使用者點選的選項 (null | true | false)
         let selectedOption = null; 
 
         let answers = { mouthBreathe: null, chinRecess: null, stuffyNose: null, snoring: null, allergy: null };
-        let insCheck = { hasRealPay: false, isLimitEnough: false }; // 已將 outpatient 修正為 isLimitEnough
+        let insCheck = { hasRealPay: false, isLimitEnough: false }; 
         let formData = { name: '', phone: '', contactTime: 'anytime', hasPolicy: 'unsure' };
         let careDemographics = { gender: '', ageGroup: '' };
-
-        // 優先從本地記憶體讀取快取當作備份
-        let reservations = [];
-        try {
-            const stored = localStorage.getItem('nasal_reservations_data');
-            if (stored) {
-                reservations = JSON.parse(stored);
-            }
-        } catch (e) {
-            console.error("Local storage access failed", e);
-        }
-
-        // 儲存本地快取備份
-        function saveLocalData() {
-            try {
-                localStorage.setItem('nasal_reservations_data', JSON.stringify(reservations));
-            } catch (e) {
-                console.error("Failed to save local storage data", e);
-            }
-        }
 
         // 鼻腔檢測題目設定
         const questions = [
             { id: 'mouthBreathe', label: '長期用嘴呼吸', title: '你常在不知不覺中用嘴巴呼吸嗎？', desc: '例如：白天專注、睡覺、運動、或放鬆時，經常嘴巴微張代替鼻子呼吸。', icon: 'activity', iconColor: 'text-[#4F7965]' },
             { id: 'chinRecess', label: '下巴縮/齒列不整', title: '側臉拍照或照鏡子時，覺得下巴內縮 or 齒列不整？', desc: '長期用嘴巴呼吸可能會影響面部骨骼發育，導致下巴後縮 or 咬合不佳。', icon: 'sparkles', iconColor: 'text-[#D09683]' },
             { id: 'stuffyNose', label: '常態物理性鼻塞', title: '常常覺得單側 or 雙側鼻塞，吃過敏藥也沒明顯改善？', desc: '這可能是骨性結構異常（如鼻中隔彎曲）或組織肥大導致的物理性阻塞。', icon: 'badge-alert', iconColor: 'text-[#C9A270]' },
-            { id: 'snoring', label: '睡覺打呼/易疲憊', title: '晚上睡覺經常打呼，或是早上睡醒還是覺得疲憊？', desc: '呼吸道受受阻會造成血氧降低，影響睡眠品質，甚至引起間歇性呼吸中止。', icon: 'heart-pulse', iconColor: 'text-[#5B8880]' },
+            { id: 'snoring', label: '睡覺打呼/易疲憊', title: '晚上睡覺經常打呼，或是早上睡醒還是覺得疲憊？', desc: '呼吸道受阻會造成血氧降低，影響睡眠品質，甚至引起間歇性呼吸中止。', icon: 'heart-pulse', iconColor: 'text-[#5B8880]' },
             { id: 'allergy', label: '資深呼吸道過敏', title: '你是資深過敏兒，常因流鼻水、打噴嚏而影響日常？', desc: '反覆的過敏刺激會讓鼻黏膜持續發炎肥大，加劇鼻塞症狀。', icon: 'alert-circle', iconColor: 'text-[#B35F52]' }
         ];
-
-        // 獲取目前啟用的串接網址
-        function getApiUrl() {
-            return GOOGLE_SHEET_API_URL || localStorage.getItem('nasal_backdoor_api_url') || '';
-        }
-
-        // 異步傳送數據至 Google 試算表
-        async function sendToCloud(payload) {
-            const url = getApiUrl();
-            if (!url) return false;
-            try {
-                await fetch(url, {
-                    method: 'POST',
-                    mode: 'no-cors', 
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                return true;
-            } catch(e) {
-                console.error("Cloud sync failed", e);
-                return false;
-            }
-        }
-
-        // 後台專屬：從 Google 試算表即時加載全部名單
-        async function loadReservationsFromCloud() {
-            const url = getApiUrl();
-            if (!url) return;
-            try {
-                const response = await fetch(url);
-                const data = await response.json();
-                if (Array.isArray(data)) {
-                    reservations = data;
-                    saveLocalData();
-                    if (stage === 'admin_dashboard') {
-                        render();
-                    }
-                }
-            } catch(e) {
-                console.error("Failed to load reservations from Google Sheets", e);
-            }
-        }
 
         // 綁定全域控制函式
         window.startQuiz = () => { stage = 'quiz'; currentQIndex = 0; selectedOption = null; render(); };
@@ -254,186 +166,44 @@
         };
 
         window.resetAll = () => {
-            stage = 'welcome'; score = 0; currentQIndex = 0; backdoorClicks = 0; selectedOption = null;
+            stage = 'welcome'; score = 0; currentQIndex = 0; selectedOption = null;
             answers = { mouthBreathe: null, chinRecess: null, stuffyNose: null, snoring: null, allergy: null };
-            insCheck = { hasRealPay: false, isLimitEnough: false };
+            insCheck = { hasRealPay: false, outpatient: false };
             formData = { name: '', phone: '', contactTime: 'anytime', hasPolicy: 'unsure' };
             careDemographics = { gender: '', ageGroup: '' };
             render();
         };
 
         // 提交諮詢表單
-        window.submitBookingForm = async (e) => {
+        window.submitBookingForm = (e) => {
             if (e) e.preventDefault();
             const name = document.getElementById('field-name')?.value;
             const phone = document.getElementById('field-phone')?.value;
-            const contactTime = document.getElementById('field-time')?.value;
             if (!name || !phone) return;
 
             document.getElementById('btn-submit-booking').disabled = true;
-            document.getElementById('btn-submit-booking').innerHTML = '正在送出預約資訊...';
+            document.getElementById('btn-submit-booking').innerHTML = '正在比對條款細節...';
 
-            const newDoc = {
-                action: "create",
-                id: 'local_' + Date.now(),
-                name: name,
-                phone: phone,
-                contactTime: contactTime,
-                hasPolicy: formData.hasPolicy,
-                score: score,
-                answers: {...answers},
-                insCheck: {...insCheck},
-                status: 'pending',
-                createdAt: Date.now()
-            };
-
-            await sendToCloud(newDoc);
-
-            reservations.unshift(newDoc);
-            saveLocalData();
-
-            stage = 'success';
-            formData.name = name;
-            render();
+            setTimeout(() => {
+                stage = 'success';
+                formData.name = name;
+                render();
+            }, 600);
         };
 
-        // 提交日常保養習慣 (無儲存、建檔等敏惑文字)
-        window.submitCareForm = async (e) => {
+        // 提交日常保養問卷
+        window.submitCareForm = (e) => {
             if (e) e.preventDefault();
             if (!careDemographics.gender || !careDemographics.ageGroup) return;
 
             document.getElementById('btn-submit-care').disabled = true;
             document.getElementById('btn-submit-care').innerHTML = '正在為您載入建議...';
 
-            const ageMap = { 'under_20': '20歲以下', '21_30': '21-30歲', '31_40': '31-40歲', '41_50': '41-50歲', 'above_50': '51歲以上' };
-            const genderText = careDemographics.gender === 'male' ? '男生' : '女生';
-            const ageText = ageMap[careDemographics.ageGroup] || careDemographics.ageGroup;
-
-            const docData = {
-                action: "create",
-                id: 'local_care_' + Date.now(),
-                name: `匿名客戶 (${genderText})`,
-                phone: '未提供 (僅日常保養)',
-                gender: genderText,
-                ageGroup: ageText,
-                score: score,
-                answers: {...answers},
-                status: 'care_only',
-                createdAt: Date.now()
-            };
-
-            await sendToCloud(docData);
-
-            reservations.unshift(docData);
-            saveLocalData();
-
-            stage = 'no_thanks';
-            render();
-        };
-
-        // 測試雲端設定測試按鈕
-        window.testCloudConnection = async () => {
-            const btn = document.getElementById('btn-test-cloud');
-            const statusText = document.getElementById('test-cloud-status');
-            const url = document.getElementById('settings-api-url').value;
-            if (!url) {
-                statusText.className = "text-xs font-bold text-[#B35F52]";
-                statusText.innerText = "❌ 請先輸入網頁應用程式網址！";
-                return;
-            }
-
-            btn.disabled = true;
-            statusText.className = "text-xs text-[#8C8377]";
-            statusText.innerText = "正在傳送測試資料...";
-
-            const testData = {
-                action: "create",
-                id: 'test_' + Date.now(),
-                name: '測試名單 (張先生)',
-                phone: '0988-777-666',
-                contactTime: 'anytime',
-                hasPolicy: 'yes',
-                score: 4,
-                answers: { mouthBreathe: true, chinRecess: true, stuffyNose: true, snoring: true, allergy: false },
-                insCheck: { hasRealPay: true, isLimitEnough: true },
-                status: 'pending',
-                createdAt: Date.now()
-            };
-
-            const originalUrl = localStorage.getItem('nasal_backdoor_api_url');
-            localStorage.setItem('nasal_backdoor_api_url', url);
-            await sendToCloud(testData);
-            localStorage.setItem('nasal_backdoor_api_url', originalUrl || '');
-
-            statusText.className = "text-xs font-bold text-[#4F7965]";
-            statusText.innerText = "✅ 測試指令已發送！請確認您的 LINE、信箱或試算表是否順利接收！";
-            btn.disabled = false;
-        };
-
-        // 儲存串接設定
-        window.saveSettings = () => {
-            const url = document.getElementById('settings-api-url').value;
-            localStorage.setItem('nasal_backdoor_api_url', url);
-            const statusText = document.getElementById('save-settings-status');
-            statusText.innerText = "儲存成功！";
-            setTimeout(() => { statusText.innerText = ""; }, 2000);
-            loadReservationsFromCloud();
-        };
-
-        window.toggleSettingsPanel = () => {
-            showSettings = !showSettings;
-            render();
-        };
-
-        // 顧問管理後台認證
-        window.submitAdminLogin = (e) => {
-            if (e) e.preventDefault();
-            const pwd = document.getElementById('admin-password-field')?.value;
-            if (pwd === '02150504') {
-                stage = 'admin_dashboard';
-                loadReservationsFromCloud(); 
-            } else {
-                document.getElementById('admin-error-msg').innerText = '身份識別碼錯誤，請重新輸入！';
-            }
-            render();
-        };
-
-        // 後台管理員操作：變更聯絡進度
-        window.toggleStatus = async (id, currentStatus) => {
-            const nextStatus = currentStatus === 'pending' ? 'contacted' : 'pending';
-            await sendToCloud({ action: "updateStatus", id: id, status: nextStatus });
-
-            const match = reservations.find(r => r.id === id);
-            if (match) {
-                match.status = nextStatus;
-                saveLocalData();
+            setTimeout(() => {
+                stage = 'no_thanks';
                 render();
-            }
+            }, 600);
         };
-
-        // 後台管理員操作：刪除資料
-        window.setDeleteId = (id) => { deleteConfirmId = id; render(); };
-        window.confirmDelete = async (id) => {
-            await sendToCloud({ action: "delete", id: id });
-
-            reservations = reservations.filter(r => r.id !== id);
-            saveLocalData();
-            deleteConfirmId = null;
-            render();
-        };
-
-        window.setFilter = (status) => { filterStatus = status; render(); };
-
-        // 彩蛋隱藏入口連點偵測
-        document.getElementById('backdoor-trigger').addEventListener('click', () => {
-            if (stage === 'admin_dashboard' || stage === 'admin_login') return;
-            backdoorClicks++;
-            if (backdoorClicks >= 5) {
-                stage = 'admin_login';
-                backdoorClicks = 0;
-                render();
-            }
-        });
 
         // 動態 HTML 渲染模組
         function render() {
@@ -443,18 +213,13 @@
             // Header Text 連動更新
             const mainTitle = document.getElementById('header-title');
             const subTitle = document.getElementById('header-desc');
-            if (stage.startsWith('admin_')) {
-                mainTitle.innerText = '📊 條款對照與諮詢後台';
-                subTitle.innerText = '即時追蹤客戶提交的篩檢數據與條款對照狀態';
-                document.getElementById('btn-home').classList.remove('hidden');
-            } else {
-                mainTitle.innerText = '鼻腔健康與呼吸自主檢測';
-                subTitle.innerText = '告別長期張嘴呼吸，換回漂亮又順暢的人生！';
-                if (stage === 'welcome' || stage === 'success') { 
-                    document.getElementById('btn-home').classList.add('hidden'); 
-                } else { 
-                    document.getElementById('btn-home').classList.remove('hidden'); 
-                }
+            
+            mainTitle.innerText = '鼻腔健康與呼吸自主檢測';
+            subTitle.innerText = '告別長期張嘴呼吸，換回漂亮又順暢的人生！';
+            if (stage === 'welcome' || stage === 'success') { 
+                document.getElementById('btn-home').classList.add('hidden'); 
+            } else { 
+                document.getElementById('btn-home').classList.remove('hidden'); 
             }
 
             let html = '';
@@ -489,6 +254,7 @@
                 const q = questions[currentQIndex];
                 const pct = Math.round(((currentQIndex + 1) / questions.length) * 100);
 
+                // 預設樣式 (空心圓圈，點選後才由 selectOption 觸發勾勾)
                 let yesClass = "w-full bg-white hover:bg-[#E8F0EC]/40 text-[#4A433C] font-semibold py-4 px-6 rounded-2xl border border-[#DCD6CD] hover:border-[#4F7965] shadow-sm flex items-center justify-between transition-all duration-300";
                 let yesIcon = `<span class="w-5 h-5 rounded-full border border-[#D0C9BE]"></span>`;
 
@@ -576,7 +342,7 @@
                   </div>`;
             }
 
-            // STAGE: Care Demographics (日常保養匿名分流)
+            // STAGE: Care Demographics (日常保養分流)
             else if (stage === 'care_demographics') {
                 const isFormComplete = careDemographics.gender && careDemographics.ageGroup;
                 html = `
@@ -642,8 +408,8 @@
                     </div>
 
                     <div class="bg-[#E8F0EC]/30 rounded-2xl p-5 text-left border border-[#DCE6E1] space-y-2 text-xs text-[#3D5E4E]">
-                      <div class="font-bold flex items-center text-[#4F7965]"><i data-lucide="award" class="w-4 h-4 mr-1.5"></i>健康保障溫馨提醒：</div>
-                      <p class="leading-relaxed">若未來您或身邊的家人在看診時，被醫生評估需要進行鼻部自費手術（例如微創消融、雷射），想了解手邊的合約保障（如「住院 vs 門診手術限制」、「實支實付條款對照」）是否能完整支持時，隨時歡迎您再次回來進行比對！</p>
+                      <div class="font-bold flex items-center text-[#4F7965]"><i data-lucide="award" class="w-4 h-4 mr-1.5"></i>保障觀念溫馨提醒：</div>
+                      <p class="leading-relaxed">若未來您或身邊的家人在看診時，被醫生評估需要進行鼻部自費手術（例如微創消融、動力切除），想了解手邊的合約保障（如「住院 vs 門診手術限制」、「實支實付條款對照」）是否能完整支持時，隨時歡迎您再次回來進行比對！</p>
                     </div>
                     <div class="space-y-3 pt-2">
                       <button onclick="goInsurance()" class="w-full bg-white hover:bg-[#E8F0EC]/30 text-[#4F7965] font-bold py-3.5 px-6 rounded-2xl border border-[#4F7965]/30 flex items-center justify-center space-x-2 transition-all"><span>還是想了解條款對照方式</span></button>
@@ -724,7 +490,7 @@
                   </div>`;
             }
 
-            // STAGE: Booking (一對一保障條款導讀預約表單 - 已整合雙向綁定與口語化選項)
+            // STAGE: Booking (一對一保障條款導讀預約表單)
             else if (stage === 'booking') {
                 html = `
                   <div class="space-y-5 animate-fade-in text-left max-w-md mx-auto w-full">
@@ -779,179 +545,6 @@
                       <p class="leading-relaxed">您可以先找出目前的契約文本或保險保障明細。在諮詢時，這能協助我們更有效率地為您對讀「實支實付上限、門診處置定義」等條款細節喔！</p>
                     </div>
                     <button onclick="resetAll()" class="w-full bg-[#EBE7DF] text-[#5C554E] font-semibold py-3.5 px-6 rounded-2xl transition-all">回首頁重新測驗</button>
-                  </div>`;
-            }
-
-            // STAGE: Admin Login (彩蛋登入密碼驗證畫面)
-            else if (stage === 'admin_login') {
-                html = `
-                  <div class="space-y-5 animate-fade-in text-left max-w-md mx-auto w-full">
-                    <div class="text-center space-y-1">
-                      <span class="p-2.5 bg-[#E8F0EC] rounded-full inline-block text-[#4F7965]"><i data-lucide="lock"></i></span>
-                      <h3 class="text-lg font-bold text-[#2E3631] mt-2">安全認證登入</h3>
-                      <p class="text-xs text-[#70665B]">此區域限專員存取，請輸入管理密碼驗證身份</p>
-                    </div>
-                    <form onsubmit="submitAdminLogin(event)" class="space-y-4">
-                      <div class="space-y-1">
-                        <label class="text-xs font-bold text-[#70665B]">管理員密碼</label>
-                        <input type="password" id="admin-password-field" required placeholder="請輸入管理密碼" class="w-full bg-[#FAF9F6] border border-[#D5CDBC] focus:border-[#4F7965] rounded-xl px-4 py-3 text-sm outline-none transition-all">
-                        <p id="admin-error-msg" class="text-xs text-[#B35F52] font-bold mt-1"></p>
-                      </div>
-                      <button type="submit" class="w-full bg-[#4F7965] hover:bg-[#3D5E4F] text-white font-semibold py-3.5 px-6 rounded-2xl shadow-lg transition-all">驗證身份並登入</button>
-                    </form>
-                  </div>`;
-            }
-
-            // STAGE: Admin Dashboard (本地智能後台管理總覽區)
-            else if (stage === 'admin_dashboard') {
-                const totalCount = reservations.length;
-                const pendingCount = reservations.filter(r => r.status === 'pending').length;
-                const completedCount = reservations.filter(r => r.status === 'contacted').length;
-                const careCount = reservations.filter(r => r.status === 'care_only').length;
-
-                const filtered = reservations.filter(r => {
-                    if (filterStatus === 'all') return true;
-                    return r.status === filterStatus;
-                });
-
-                let listHtml = '';
-                if (filtered.length === 0) {
-                    listHtml = `<div class="text-center py-12 border border-dashed border-[#E3DDD1] rounded-2xl text-[#8C8377] text-xs">目前沒有符合篩選條件的諮詢名單</div>`;
-                } else {
-                    filtered.forEach(item => {
-                        const d = new Date(item.createdAt || Date.now());
-                        const timeStr = `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-                        const isCare = item.status === 'care_only';
-
-                        let badge = '';
-                        let cardClass = '';
-                        if (isCare) {
-                            badge = `<span class="text-[10px] px-2 py-0.5 rounded-full font-bold bg-[#E8F0EC] text-[#4F7965]">日常保養 🌿</span>`;
-                            cardClass = 'border-[#E3DDD1] bg-[#FAF9F6]';
-                        } else if (item.status === 'contacted') {
-                            badge = `<span class="text-[10px] px-2 py-0.5 rounded-full font-bold bg-[#EBE7DF] text-[#70665B]">已完成導讀</span>`;
-                            cardClass = 'border-[#E3DDD1] bg-[#FAF9F6]/50 opacity-75';
-                        } else {
-                            badge = `<span class="text-[10px] px-2 py-0.5 rounded-full font-bold bg-[#FDF3F1] text-[#B35F52]">待聯繫</span>`;
-                            cardClass = 'border-[#DCE6E1] bg-[#E8F0EC]/5';
-                        }
-
-                        let detailSection = '';
-                        if (isCare) {
-                            detailSection = `
-                              <div class="grid grid-cols-2 gap-2 text-xs bg-white rounded-xl p-3 border border-[#E3DDD1] shadow-sm">
-                                <div class="flex items-center space-x-1.5 text-[#5C554E]"><i data-lucide="user" class="w-3.5 h-3.5 text-[#4F7965]"></i><span class="font-bold">${item.gender || '性別未填'}</span></div>
-                                <div class="flex items-center space-x-1.5 text-[#5C554E]"><i data-lucide="clock" class="w-3.5 h-3.5 text-[#4F7965]"></i><span>${item.ageGroup || '年齡未填'}</span></div>
-                                <div class="col-span-2 border-t border-[#FAF9F6] pt-2 text-[11px] font-bold text-[#4A433C]">意願分流：先了解健康狀況，維持自主保養 🌿</div>
-                              </div>`;
-                        } else {
-                            let gaps = [];
-                            if (item.insCheck?.hasRealPay) gaps.push('<span class="bg-[#FDF3F1] text-[#B35F52] text-[9px] px-1.5 py-0.5 rounded font-bold">無實支實付</span>');
-                            if (item.insCheck?.isLimitEnough) gaps.push('<span class="bg-[#FAF6EE] text-[#C9A270] text-[9px] px-1.5 py-0.5 rounded font-bold">額度可能不足</span>');
-                            const gapStr = gaps.length > 0 ? gaps.join(' ') : '<span class="text-[#8C8377]">未勾選缺口</span>';
-
-                            const policyText = item.hasPolicy === 'yes' ? '我有買，但不確定額度夠不夠' : '不確定有沒有「實支實付」';
-
-                            detailSection = `
-                              <div class="grid grid-cols-2 gap-2 text-xs bg-white rounded-xl p-3 border border-[#E3DDD1] shadow-sm">
-                                <div class="flex items-center space-x-1.5 text-[#5C554E]"><i data-lucide="phone" class="w-3.5 h-3.5 text-[#4F7965]"></i><a href="tel:${item.phone}" class="hover:underline font-bold text-[#4F7965]">${item.phone}</a></div>
-                                <div class="flex items-center space-x-1.5 text-[#5C554E]"><i data-lucide="clock" class="w-3.5 h-3.5 text-[#4F7965]"></i><span>${item.contactTime === 'anytime' ? '隨時皆可' : item.contactTime}</span></div>
-                                <div class="col-span-2 border-t border-[#FAF9F6] pt-2 flex flex-col space-y-1 text-[11px]">
-                                  <div class="flex justify-between"><span class="text-[#8C8377]">保障現狀：</span><span class="font-bold text-[#4A433C]">${policyText}</span></div>
-                                  <div class="flex items-center gap-1 mt-1 flex-wrap"><span class="text-[#8C8377] text-[10px] shrink-0">疑慮點：</span>${gapStr}</div>
-                                </div>
-                              </div>`;
-                        }
-
-                        // 鼻塞與口呼吸症狀標籤
-                        let symptomBadges = [];
-                        if (item.answers) {
-                            Object.entries(item.answers).forEach(([k, v]) => {
-                                if (!v) return;
-                                const matchQ = questions.find(q => q.id === k);
-                                symptomBadges.push(`<span class="bg-white border border-[#E3DDD1] text-[10px] px-2 py-0.5 rounded-full text-[#5C554E] font-medium">⚠️ ${matchQ ? matchQ.label : k}</span>`);
-                            });
-                        }
-                        if (symptomBadges.length === 0) symptomBadges.push('<span class="text-[#4F7965] font-bold text-[10px]">全數健康正常</span>');
-
-                        // 刪除按鈕
-                        let deleteBtnHtml = `<button onclick="setDeleteId('${item.id}')" class="text-[#C4BDB1] hover:text-[#B35F52] p-1.5 rounded-lg transition-colors"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`;
-                        if (deleteConfirmId === item.id) {
-                            deleteBtnHtml = `
-                              <div class="flex items-center space-x-1 text-xs">
-                                <button onclick="confirmDelete('${item.id}')" class="bg-[#B35F52] hover:bg-[#964E43] text-white text-[10px] px-2 py-1 rounded-md font-bold">確認</button>
-                                <button onclick="setDeleteId(null)" class="bg-[#EBE7DF] text-[#5C554E] text-[10px] px-2 py-1 rounded-md font-bold">取消</button>
-                              </div>`;
-                        }
-
-                        // 進度變更按鈕 (日常保養匿名客戶不顯示)
-                        const actionBtn = isCare ? '' : `
-                          <div class="pt-1">
-                            <button onclick="toggleStatus('${item.id}', '${item.status}')" class="w-full py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 transition-all ${item.status === 'contacted' ? 'bg-[#EBE7DF] hover:bg-[#DCD6CD] text-[#5C554E]' : 'bg-[#4F7965] hover:bg-[#3D5E4F] text-[#FCFBF9]'}">
-                              <i data-lucide="check" class="w-4 h-4"></i><span>${item.status === 'contacted' ? '設為待處理' : '完成條款導讀諮詢'}</span>
-                            </button>
-                          </div>`;
-
-                        listHtml += `
-                          <div class="border rounded-2xl p-4 space-y-3 transition-all relative ${cardClass}">
-                            <div class="flex justify-between items-start">
-                              <div>
-                                <div class="flex items-center space-x-2">
-                                  <h4 class="font-bold text-[#2E3631] text-base">${item.name}</h4>${badge}
-                                </div>
-                                <span class="text-[10px] text-[#8C8377] block mt-0.5">時間：${timeStr}</span>
-                              </div>
-                              <div class="flex items-center">${deleteBtnHtml}</div>
-                            </div>
-                            ${detailSection}
-                            <div class="bg-[#F5F4F0] rounded-xl p-3 text-xs space-y-2">
-                              <div class="flex justify-between items-center"><span class="text-[#8C8377] font-bold text-[10px]">鼻腔篩檢分數：</span><span class="font-black text-[10px] text-[#4F7965]">符合 ${item.score || 0} 項</span></div>
-                              <div class="flex flex-wrap gap-1">${symptomBadges.join('')}</div>
-                            </div>
-                            <div class="pt-1">
-                              ${actionBtn}
-                            </div>
-                          </div>`;
-                    });
-                }
-
-                html = `
-                  <div class="space-y-6 animate-fade-in text-left w-full">
-                    <div class="grid grid-cols-4 gap-2">
-                      <div class="bg-[#EAEBE4]/40 border border-[#DCE6E1] rounded-2xl p-2.5 text-center">
-                        <span class="text-[9px] text-[#8C8377] font-bold block uppercase tracking-wider">總名單量</span><span class="text-xl font-black text-[#4F7965]">${totalCount}</span>
-                      </div>
-                      <div class="bg-[#E8F0EC]/50 border border-[#DCE6E1] rounded-2xl p-2.5 text-center">
-                        <span class="text-[9px] text-[#4F7965] font-bold block">諮詢預約</span><span class="text-xl font-black text-[#4F7965]">${totalCount - careCount}</span>
-                      </div>
-                      <div class="bg-white border border-[#DCE6E1] rounded-2xl p-2.5 text-center">
-                        <span class="text-[9px] text-[#4F7965]/80 font-bold block">日常保養</span><span class="text-xl font-black text-[#7A8E7E]">${careCount}</span>
-                      </div>
-                      <div class="bg-[#FDF3F1]/50 border border-[#F7E2DE] rounded-2xl p-2.5 text-center">
-                        <span class="text-[9px] text-[#B35F52]/80 font-bold block">待處理</span><span class="text-xl font-black text-[#B35F52]">${pendingCount}</span>
-                      </div>
-                    </div>
-                    <div class="flex items-center justify-between border-b border-[#EBE7DF] pb-3 flex-row flex-wrap gap-2">
-                      <div class="flex items-center space-x-1.5 text-xs text-[#70665B] font-bold">
-                        <i data-lucide="list-filter" class="w-3.5 h-3.5"></i>
-                        <span>篩選：</span>
-                        <div class="flex space-x-1">
-                          <button onclick="setFilter('all')" class="px-2.5 py-1 text-xs font-bold rounded-lg transition-all ${filterStatus === 'all' ? 'bg-[#4F7965] text-white' : 'text-[#70665B] hover:bg-[#FAF9F6]'}">全部</button>
-                          <button onclick="setFilter('pending')" class="px-2.5 py-1 text-xs font-bold rounded-lg transition-all ${filterStatus === 'pending' ? 'bg-[#4F7965] text-white' : 'text-[#70665B] hover:bg-[#FAF9F6]'}">待處理</button>
-                          <button onclick="setFilter('contacted')" class="px-2.5 py-1 text-xs font-bold rounded-lg transition-all ${filterStatus === 'contacted' ? 'bg-[#4F7965] text-white' : 'text-[#70665B] hover:bg-[#FAF9F6]'}">已完成</button>
-                          <button onclick="setFilter('care_only')" class="px-2.5 py-1 text-xs font-bold rounded-lg transition-all ${filterStatus === 'care_only' ? 'bg-[#4F7965] text-white' : 'text-[#70665B] hover:bg-[#FAF9F6]'}">僅保養</button>
-                        </div>
-                      </div>
-                      
-                      <button onclick="toggleSettingsPanel()" class="px-2.5 py-1 text-xs font-bold rounded-lg border border-[#D5CDBC] hover:bg-[#FAF9F6] flex items-center space-x-1 font-bold text-[#4F7965]">
-                        <i data-lucide="settings" class="w-3.5 h-3.5"></i>
-                        <span>串接設定</span>
-                      </button>
-                    </div>
-
-                    ${settingsPanelHtml}
-
-                    <div class="space-y-4 max-h-[350px] overflow-y-auto pr-1">${listHtml}</div>
                   </div>`;
             }
 
